@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1109" height="844" viewBox="0 0 1109 844" font-family="DejaVu Sans Mono, Menlo, Consolas, monospace" font-size="14">
+<rect width="1108.8000000000002" height="844" fill="#2b0a22"/>
+<rect x="556" width="552.8000000000002" height="844" fill="#262626"/>
+<rect x="553" width="3" height="844" fill="#3a3a3a"/>
+<rect x="26" y="14" width="56" height="28" fill="#e08a8a"/>
+<rect x="14" y="28" width="80" height="12" fill="#e08a8a"/>
+<rect x="32" y="42" width="8" height="14" fill="#e08a8a"/>
+<rect x="64" y="42" width="8" height="14" fill="#e08a8a"/>
+<text x="108.0" y="27.0" fill="#e6e6e6" font-weight="bold" xml:space="preserve">Claude Code</text>
+<text x="200.4" y="27.0" fill="#8a8a8a" xml:space="preserve"> v2.1.317</text>
+<text x="108.0" y="47.0" fill="#8a8a8a" xml:space="preserve">Opus 5.5 · Claude</text>
+<text x="108.0" y="67.0" fill="#8a8a8a" xml:space="preserve">~/projects/my-app</text>
+<text x="16.0" y="115" fill="#e6e6e6" xml:space="preserve">&gt; </text>
+<text x="32.8" y="115" fill="#8a8a8a" xml:space="preserve">Add a logout button to the header</text>
+<text x="16.0" y="135" fill="#8a8a8a" xml:space="preserve">  ● Read src/components/Header.tsx</text>
+<text x="16.0" y="155" fill="#8a8a8a" xml:space="preserve">  ● Edit src/components/Header.tsx</text>
+<rect x="12" y="784" width="528" height="1" fill="#5a3a50"/>
+<text x="16.0" y="803.0" fill="#e6e6e6" xml:space="preserve">&gt; </text>
+<text x="32.8" y="803.0" fill="#8a8a8a" xml:space="preserve">Try "explain this codebase"</text>
+<text x="572.0" y="23.0" fill="#5fbf7f" font-weight="bold" xml:space="preserve">feature/logout</text>
+<text x="689.6" y="23.0" fill="#8a8a8a" xml:space="preserve"> ▾  [ahead 1]</text>
+<rect x="560" y="28" width="540.8000000000001" height="56" rx="8" fill="none" stroke="#6b6b6b" stroke-width="2"/>
+<text x="572.0" y="53.0" fill="#3fb6c9" xml:space="preserve">fetch</text>
+<text x="614.0" y="53.0" fill="#8a8a8a" xml:space="preserve"> · </text>
+<text x="639.2" y="53.0" fill="#3fb6c9" xml:space="preserve">pull</text>
+<text x="672.8" y="53.0" fill="#8a8a8a" xml:space="preserve"> · </text>
+<text x="698.0" y="53.0" fill="#3fb6c9" xml:space="preserve">push</text>
+<text x="731.6" y="53.0" fill="#8a8a8a" xml:space="preserve"> · </text>
+<text x="756.8" y="53.0" fill="#3fb6c9" xml:space="preserve">stash</text>
+<text x="798.8" y="53.0" fill="#8a8a8a" xml:space="preserve"> · </text>
+<text x="824.0" y="53.0" fill="#3fb6c9" xml:space="preserve">stash pop</text>
+<rect x="560" y="88" width="540.8000000000001" height="396" rx="8" fill="none" stroke="#6b6b6b" stroke-width="2"/>
+<text x="572.0" y="113.0" fill="#3b82f6" xml:space="preserve">■ </text>
+<text x="588.8" y="113.0" fill="#3b82f6" font-weight="bold" xml:space="preserve">my-app</text>
+<text x="950.0" y="113.0" fill="#8a8a8a" xml:space="preserve">↑ ⌂ ↻ ⊙ ◫ ⊟ ◷ ⊡</text>
+<text x="572.0" y="133.0" fill="#8a8a8a" xml:space="preserve">⑂ </text>
+<text x="588.8" y="133.0" fill="#e6e6e6" xml:space="preserve">feature/logout </text>
+<text x="714.8" y="133.0" fill="#8a8a8a" xml:space="preserve">origin/feature/logout </text>
+<text x="899.6" y="133.0" fill="#5fbf7f" xml:space="preserve">↑1</text>
+<text x="1000.4" y="133.0" fill="#8a8a8a" xml:space="preserve">1 changed</text>
+<text x="572.0" y="173.0" fill="#8a8a8a" xml:space="preserve">⌕ search</text>
+<text x="1034.0" y="173.0" fill="#8a8a8a" xml:space="preserve">Aa .*</text>
+<text x="572.0" y="193.0" fill="#8a8a8a" xml:space="preserve">    Name</text>
+<text x="1008.8" y="193.0" fill="#8a8a8a" xml:space="preserve">Modified</text>
+<text x="572.0" y="213.0" fill="#8a8a8a" xml:space="preserve">▸ </text>
+<text x="588.8" y="213.0" fill="#8a8a8a" xml:space="preserve">■ </text>
+<text x="605.6" y="213.0" fill="#8a8a8a" xml:space="preserve">.github</text>
+<text x="941.6" y="213.0" fill="#8a8a8a" xml:space="preserve">2026-10-02 09:14</text>
+<text x="572.0" y="233.0" fill="#8a8a8a" xml:space="preserve">▸ </text>
+<text x="588.8" y="233.0" fill="#3b82f6" xml:space="preserve">■ </text>
+<text x="605.6" y="233.0" fill="#e6e6e6" xml:space="preserve">docs</text>
+<text x="941.6" y="233.0" fill="#8a8a8a" xml:space="preserve">2026-10-28 17:40</text>
+<text x="572.0" y="253.0" fill="#8a8a8a" xml:space="preserve">▾ </text>
+<text x="588.8" y="253.0" fill="#3b82f6" xml:space="preserve">■ </text>
+<text x="605.6" y="253.0" fill="#e6e6e6" xml:space="preserve">src</text>
+<text x="941.6" y="253.0" fill="#8a8a8a" xml:space="preserve">2026-11-03 10:12</text>
+<text x="572.0" y="273.0" fill="#8a8a8a" xml:space="preserve">  ▸ </text>
+<text x="605.6" y="273.0" fill="#3b82f6" xml:space="preserve">■ </text>
+<text x="622.4" y="273.0" fill="#e6e6e6" xml:space="preserve">components</text>
+<text x="941.6" y="273.0" fill="#8a8a8a" xml:space="preserve">2026-11-03 10:12</text>
+<text x="572.0" y="293.0" fill="#8a8a8a" xml:space="preserve">    • </text>
+<text x="622.4" y="293.0" fill="#e5c07b" xml:space="preserve">Header.tsx</text>
+<text x="916.4" y="293.0" fill="#5fbf7f" xml:space="preserve">+6 </text>
+<text x="941.6" y="293.0" fill="#8a8a8a" xml:space="preserve">2026-11-03 10:12</text>
+<text x="572.0" y="313.0" fill="#8a8a8a" xml:space="preserve">  • </text>
+<text x="605.6" y="313.0" fill="#e6e6e6" xml:space="preserve">App.tsx</text>
+<text x="941.6" y="313.0" fill="#8a8a8a" xml:space="preserve">2026-10-30 15:02</text>
+<text x="572.0" y="333.0" fill="#8a8a8a" xml:space="preserve">  • </text>
+<text x="605.6" y="333.0" fill="#e6e6e6" xml:space="preserve">main.tsx</text>
+<text x="941.6" y="333.0" fill="#8a8a8a" xml:space="preserve">2026-10-21 11:47</text>
+<text x="572.0" y="353.0" fill="#8a8a8a" xml:space="preserve">▸ </text>
+<text x="588.8" y="353.0" fill="#3b82f6" xml:space="preserve">■ </text>
+<text x="605.6" y="353.0" fill="#e6e6e6" xml:space="preserve">tests</text>
+<text x="941.6" y="353.0" fill="#8a8a8a" xml:space="preserve">2026-10-30 15:02</text>
+<text x="572.0" y="373.0" fill="#8a8a8a" xml:space="preserve">• </text>
+<text x="588.8" y="373.0" fill="#8a8a8a" xml:space="preserve">.gitignore</text>
+<text x="941.6" y="373.0" fill="#8a8a8a" xml:space="preserve">2026-09-12 08:30</text>
+<text x="572.0" y="393.0" fill="#8a8a8a" xml:space="preserve">• </text>
+<text x="588.8" y="393.0" fill="#e6e6e6" xml:space="preserve">LICENSE</text>
+<text x="941.6" y="393.0" fill="#8a8a8a" xml:space="preserve">2026-09-12 08:30</text>
+<text x="572.0" y="413.0" fill="#8a8a8a" xml:space="preserve">• </text>
+<text x="588.8" y="413.0" fill="#e6e6e6" xml:space="preserve">README.md</text>
+<text x="941.6" y="413.0" fill="#8a8a8a" xml:space="preserve">2026-10-28 17:40</text>
+<text x="572.0" y="433.0" fill="#8a8a8a" xml:space="preserve">• </text>
+<text x="588.8" y="433.0" fill="#e6e6e6" xml:space="preserve">package.json</text>
+<text x="941.6" y="433.0" fill="#8a8a8a" xml:space="preserve">2026-10-21 11:47</text>
+<text x="572.0" y="453.0" fill="#3b82f6" xml:space="preserve">?</text>
+<text x="580.4" y="453.0" fill="#8a8a8a" xml:space="preserve">: shortcuts</text>
+<rect x="560" y="488" width="540.8000000000001" height="96" rx="8" fill="none" stroke="#6b6b6b" stroke-width="2"/>
+<text x="572.0" y="513.0" fill="#e6e6e6" font-weight="bold" xml:space="preserve">Changes (1)</text>
+<text x="572.0" y="533.0" fill="#e5c07b" xml:space="preserve"> M src/components/Header.tsx</text>
+<rect x="560" y="588" width="540.8000000000001" height="236" rx="8" fill="none" stroke="#6b6b6b" stroke-width="2"/>
+<text x="572.0" y="613.0" fill="#e6e6e6" font-weight="bold" xml:space="preserve">Graph</text>
+<text x="614.0" y="613.0" fill="#8a8a8a" xml:space="preserve">  1-11/42  </text>
+<text x="706.4" y="613.0" fill="#5fbf7f" font-weight="bold" xml:space="preserve">current</text>
+<text x="765.2" y="613.0" fill="#8a8a8a" xml:space="preserve"> · all</text>
+<text x="572.0" y="633.0" fill="#e6e6e6" xml:space="preserve">*   a1b2c3d (HEAD -&gt; feature/logout) Add logout button</text>
+<text x="572.0" y="653.0" fill="#e6e6e6" xml:space="preserve">*   9f8e7d6 (origin/main, main) Merge branch 'feature/login'</text>
+<text x="572.0" y="673.0" fill="#e6e6e6" xml:space="preserve">|\</text>
+<text x="572.0" y="693.0" fill="#e6e6e6" xml:space="preserve">| * 4c5d6e7 Add login form</text>
+<text x="572.0" y="713.0" fill="#e6e6e6" xml:space="preserve">| * 3b4c5d6 Add auth API client</text>
+<text x="572.0" y="733.0" fill="#e6e6e6" xml:space="preserve">|/</text>
+<text x="572.0" y="753.0" fill="#e6e6e6" xml:space="preserve">*   8e9f0a1 Fix typo in README</text>
+<text x="572.0" y="773.0" fill="#e6e6e6" xml:space="preserve">*   7d8e9f0 Update dependencies</text>
+<text x="572.0" y="793.0" fill="#e6e6e6" xml:space="preserve">*   6c7d8e9 Add unit tests for App</text>
+<text x="572.0" y="813.0" fill="#e6e6e6" xml:space="preserve">*   1a2b3c4 Initial commit</text>
+</svg>

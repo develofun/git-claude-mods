@@ -1,0 +1,14 @@
+{
+  "name": "git-claude-mods",
+  "description": "Claude Code mods for working with git beside the conversation",
+  "owner": {
+    "name": "git-claude-mods contributors"
+  },
+  "plugins": [
+    {
+      "name": "git-pane",
+      "source": "./git-pane",
+      "description": "A Claude Code pane with the file tree, git changes, a commit graph and commit details, branch checkout, merge/rebase and fetch/pull/push/stash buttons"
+    }
+  ]
+}

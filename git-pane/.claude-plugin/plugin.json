@@ -1,0 +1,207 @@
+{
+  "name": "git-pane",
+  "version": "0.2.0",
+  "description": "Pane with the worktree's file tree, git changes and commit graph; the file tree is filetree 0.6.0 (MIT, Kurt Buhler)",
+  "license": "MIT",
+  "keywords": [
+    "git",
+    "file-tree",
+    "pane",
+    "mod"
+  ],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "activity": {
+      "type": "string",
+      "title": "Claude activity",
+      "description": "Which of Claude's file activity shimmers in the tree: files read with the Read tool or Bash readers (rg, grep, find, cat) in purple, writes in orange and git actions in green",
+      "default": "reads and writes",
+      "options": [
+        "reads and writes",
+        "writes",
+        "reads",
+        "none"
+      ]
+    },
+    "glyphs": {
+      "type": "string",
+      "title": "Glyphs",
+      "description": "Icon set: auto uses Nerd Font icons when Nerd Fonts 3.2 or newer is installed here, except in the desktop app, and plain Unicode otherwise; plain uses Unicode only; text is plain with the header buttons as words (up, cwd, sync, dots, size, fold, split, clear), falling back to plain glyphs when the pane is too narrow",
+      "default": "auto",
+      "options": [
+        "auto",
+        "nerd",
+        "plain",
+        "text"
+      ]
+    },
+    "follow": {
+      "type": "string",
+      "title": "Follow Claude",
+      "description": "on: the tree scrolls to what Claude reads, writes or commits. off: the view stays where you put it and only your own scrolling moves it; highlights still show.",
+      "default": "on",
+      "options": [
+        "on",
+        "off"
+      ]
+    },
+    "start": {
+      "type": "string",
+      "title": "Open at start",
+      "description": "on: the pane opens when a session starts. off: it stays closed until you run /filetree.",
+      "default": "on",
+      "options": [
+        "on",
+        "off"
+      ]
+    },
+    "focus": {
+      "type": "string",
+      "title": "Focus on open",
+      "description": "on: /filetree moves the keyboard into the tree when it opens it. off: the keyboard stays in the prompt, so the same command, or a key bound to it, hides the tree again; /filetree open, /filetree <path> and a tree hidden behind another tab still take the focus.",
+      "default": "on",
+      "options": [
+        "on",
+        "off"
+      ]
+    },
+    "column": {
+      "type": "string",
+      "title": "Right column",
+      "description": "What the right column shows by default: date (last modified), age (time since last modified, short: now, 12m, 3h, 5d, then Oct 9 past a week and the year past a year), size (files in bytes, folders as disk usage computed in the background) or loc (non-blank lines in code, markup, config and docs files, folders as the sum, counted in the background; pictures, video, binaries and data files show nothing). The header button cycles the date or age, size and loc; in loc the treemap sizes boxes by lines.",
+      "default": "date",
+      "options": [
+        "date",
+        "age",
+        "size",
+        "loc"
+      ]
+    },
+    "hints": {
+      "type": "string",
+      "title": "Hints",
+      "description": "on: outside a git repo, a line under the header says git status starts after git init. off: the line is hidden and the tree gets the row.",
+      "default": "on",
+      "options": [
+        "on",
+        "off"
+      ]
+    },
+    "collapse": {
+      "type": "string",
+      "title": "Auto-collapse",
+      "description": "on: folders the tree opened to show Claude's reads and writes close again once that activity fades, unless you opened or moved into them. off: they stay open. The toolbar toggle and the a key flip it.",
+      "default": "off",
+      "options": [
+        "on",
+        "off"
+      ]
+    },
+    "headers": {
+      "type": "string",
+      "title": "Column headers",
+      "description": "on: a Name, Git and value header row under the search bar; click one to sort desc, asc, then off. off: hide it.",
+      "default": "on",
+      "options": [
+        "on",
+        "off"
+      ]
+    },
+    "spacing": {
+      "type": "string",
+      "title": "Search spacing",
+      "description": "on: a blank line above and below the search bar. off: the search bar sits right under the header and the tree gets the two rows.",
+      "default": "on",
+      "options": [
+        "on",
+        "off"
+      ]
+    },
+    "shortcuts": {
+      "type": "string",
+      "title": "Shortcut row",
+      "description": "auto: the footer shows a ?: shortcuts hint until you press ? in the tree, then the shortcuts show at the left of the footer row for 10 seconds, the selected entry staying at the right; ? again hides them. always: they always show. off: they never show. The keys work in every mode with the tree focused.",
+      "default": "auto",
+      "options": [
+        "auto",
+        "always",
+        "off"
+      ]
+    },
+    "open": {
+      "type": "string",
+      "title": "Open with",
+      "description": "What a double-click or Enter does with a file. Empty: the default app, also inside tmux. editor: use $VISUAL, then $EDITOR, then vi in tmux or a herdr pane (Linux/macOS only; otherwise shows a notice). preview: show it in the pane (left goes back; ↗ always opens the default app). Anything else is a command run instead: {path} is the file and {dir} its folder; without {path} the path goes last. Words split on spaces, quotes keep a word whole, and no shell runs it. It should start the viewer and return; on Linux it runs detached.",
+      "default": ""
+    },
+    "binaries": {
+      "type": "string",
+      "title": "Binary files",
+      "description": "What a double-click or Enter does with an image, audio, video, PDF, office document, archive, font or compiled file when Open with names an editor or command. Open with: hand it to the editor or command like any other file. default app: open it in the default app for its type, as if Open with were empty, so a code editor in Open with gets code and the system gets images. The file type comes from its extension; preview is unaffected.",
+      "default": "Open with",
+      "options": [
+        "Open with",
+        "default app"
+      ]
+    },
+    "edit": {
+      "type": "string",
+      "title": "Edit with",
+      "description": "What e does in the preview: open the file at the top line shown. Empty: $VISUAL, then $EDITOR, then vi in tmux or a herdr pane with +line (Linux/macOS only; the e button is hidden elsewhere). Anything else is a command like Open with, where {line} is that line, for example code -g {path}:{line} or zed {path}:{line}.",
+      "default": ""
+    },
+    "diff": {
+      "type": "string",
+      "title": "Diff with",
+      "description": "What d does on a changed file, in the tree or the preview. Empty: show its diff against HEAD in the pane, drawn by Claude Code's own diff view (an untracked file shows as all added; d again goes back to the file). Anything else is a terminal command, run on the file in a tmux window, a herdr pane or, on Linux, a new terminal window through xdg-terminal-exec, the file path going last. Examples: hunk diff --, lazygit -f, git difftool -y --, nvim -c Gvdiffsplit.",
+      "default": ""
+    },
+    "target": {
+      "type": "string",
+      "title": "Terminal target",
+      "description": "Where Open with: editor, e in the preview and a Diff with command start their terminal program inside tmux or herdr. auto: a new tmux window, or a herdr pane split to the right. pane right and pane below split the current pane; tab opens a tmux window or a herdr tab; workspace opens a new tmux session and switches to it, or a new herdr workspace. In tmux, nvim already running in the session is reused wherever it is.",
+      "default": "auto",
+      "options": [
+        "auto",
+        "pane right",
+        "pane below",
+        "tab",
+        "workspace"
+      ]
+    },
+    "ignore": {
+      "type": "string",
+      "title": "Ignore",
+      "description": "File and folder names to leave out of the tree, its search and its shimmer, separated by spaces or commas. Names match exactly, without wildcards, at any depth, like the built-in .git and node_modules. Example: .cache .tmp",
+      "default": ""
+    },
+    "split": {
+      "type": "string",
+      "title": "Preview pane",
+      "description": "Where the split preview of the file under the cursor sits when the header button or p shows it: bottom (under the tree, above the status line) or top (under the header). It starts hidden; text scrolls with the wheel over it, f/b or Page Up/Down, images, video poster frames and PDF or office document pages draw through the kitty graphics protocol in terminals that support it, and [ and ] turn a document's pages.",
+      "default": "bottom",
+      "options": [
+        "bottom",
+        "top"
+      ]
+    },
+    "treemap": {
+      "type": "string",
+      "title": "Treemap",
+      "description": "What the split preview shows on a folder. auto: a pixel-accurate treemap through the kitty graphics protocol in Ghostty and kitty, outside tmux and herdr, and the cell treemap everywhere else. image: try the pixel treemap in any terminal, falling back to cells where it cannot show, as inside tmux. cells: always the cell treemap. off: no treemap and no disk usage scans.",
+      "default": "auto",
+      "options": [
+        "auto",
+        "image",
+        "cells",
+        "off"
+      ]
+    },
+    "palette": {
+      "type": "string",
+      "title": "Palette",
+      "description": "Your own colors, laid over the Omarchy, light or default theme: key=#hex pairs separated by spaces. Keys: fg, bg, accent (folders, links), muted (dates, sizes), urgent (deleted, conflicts), selection (selected row), hover (hovered row), added, modified, renamed (git status), add and del (line counts). A key you leave out keeps the theme's color. Example (Gruvbox Dark Hard): fg=#ebdbb2 bg=#1d2021 accent=#83a598 muted=#928374 urgent=#fb4934 selection=#3c3836 added=#b8bb26 modified=#fabd2f renamed=#83a598 add=#b8bb26 del=#fb4934",
+      "default": ""
+    }
+  }
+}
