@@ -169,16 +169,22 @@ function pathsOf(line: string) {
 // ponytail: an untracked folder shows its first DIR_MAX files, one git call each; the rest are counted
 const DIR_MAX = 50
 
+// An untracked path's files: a folder's, listed; one holding its own .git lists as
+// the folder itself ("dir/"), which git clean leaves and git diff cannot read.
+async function untrackedFiles($: EngineInterface, path: string) {
+  if (!path.endsWith('/')) return [path]
+  return (await git($, ['ls-files', '--others', '--exclude-standard', '-z', '--', path])).stdout.split('\0').filter(Boolean)
+}
+
 async function diffOf($: EngineInterface, line: string) {
   const path = pathOf(line)
   const out = (ran: ProcessRunResult) => (ran.stdout || ran.stderr).trimEnd()
   if (!line.startsWith('??')) return out(await git($, ['diff', '--no-color', 'HEAD', '--', path])) || '(no diff)'
   // a folder ("dir/"): git diff --no-index would look in it for a file named null, so diff its files
-  const files = path.endsWith('/')
-    ? (await git($, ['ls-files', '--others', '--exclude-standard', '-z', '--', path])).stdout.split('\0').filter(Boolean)
-    : [path]
+  const files = await untrackedFiles($, path)
   const parts: string[] = []
-  for (const f of files.slice(0, DIR_MAX)) parts.push(out(await git($, ['diff', '--no-color', '--no-index', '--', '/dev/null', f])))
+  for (const f of files.slice(0, DIR_MAX))
+    parts.push(f.endsWith('/') ? `${f}: a git repository of its own; its changes are not this one's` : out(await git($, ['diff', '--no-color', '--no-index', '--', '/dev/null', f])))
   if (files.length > DIR_MAX) parts.push(`… ${files.length - DIR_MAX} more files`)
   return parts.filter(Boolean).join('\n') || '(no diff)'
 }
@@ -468,6 +474,9 @@ async function applyStash($: EngineInterface) {
 // The band's revert, revert all and drop ask first; this is the yes.
 async function askRevert($: EngineInterface, line: string) {
   const path = pathOf(line)
+  // git clean -f(d) leaves another repository and still says done; -ff would delete all of it
+  if (line.startsWith('??') && path.endsWith('/') && (await untrackedFiles($, path)).includes(path))
+    return void $.ui.toast(`${path} is a git repository of its own: not reverted here`)
   const text = line.startsWith('??')
     ? `delete the untracked file ${path}?`
     : line[0] === 'A'

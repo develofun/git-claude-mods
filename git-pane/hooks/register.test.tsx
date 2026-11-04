@@ -204,6 +204,39 @@ test('an untracked folder shows the diff of each file in it, not git diff on the
   await ui.unmount()
 })
 
+test('an untracked folder that is a git repository of its own: no diff run on it, and revert says so instead of asking', async ($, on) => {
+  engineBand(on)
+  mock.clock(on, { now: 1000 })
+  const calls: string[][] = []
+  const toasts: string[] = []
+  on('ui.toast', async (_$, e) => (toasts.push(e.text), { value: undefined }))
+  on('process.run', async (_$, e) => {
+    calls.push([...e.argv])
+    const a = e.argv
+    if (a[1] === 'status') return ok('## main\n?? charts/\n')
+    if (a[1] === 'log') return ok('* abc123 (HEAD -> main) first\n')
+    // git lists a folder holding its own .git as the folder itself
+    if (a[1] === 'ls-files') return ok('charts/\0')
+    if (a.includes('--no-index') && a.at(-1)?.endsWith('/')) return ok('', 1, `error: Could not access '${a.at(-1)}null'`)
+    return ok('')
+  })
+  on('ui.open', async () => ({ value: { isPlaced: true } }))
+  on('session.root', async () => ({ value: '/home/u/wt-a' }))
+  await $.command.run({ command: 'git', args: '', ...TYPED })
+  const ui = await $.ui.mount({ plugin: 'git-pane', surface: 'terminal', ...PANE })
+  const band = await $.ui.mount({ plugin: 'git-pane', surface: 'terminal', ...BAND })
+  await ui.press({ key: 'f:charts/' })
+  expect(await band.find({ type: 'Text', text: /Could not access/ })).toBeUndefined()
+  expect(await band.find({ type: 'Text', text: /git repository of its own/ })).toBeDefined()
+  expect(calls.some(a => a.includes('--no-index'))).toBe(false)
+  await band.press({ key: 'detail-revert' })
+  expect(await ui.find({ type: 'Text', text: /\[▶ yes\]/ })).toBeUndefined() // nothing to say yes to
+  expect(toasts.some(t => /git repository of its own/.test(t))).toBe(true)
+  expect(calls.some(a => a[1] === 'clean')).toBe(false)
+  await band.unmount()
+  await ui.unmount()
+})
+
 test('each panel scrolls on its own: tree, Changes and Graph', async ($, on) => {
   mock.clock(on, { now: 1000 })
   const files = Array.from({ length: 30 }, (_, i) => ` M f${i}.py`).join('\n')
