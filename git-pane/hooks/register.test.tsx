@@ -15,6 +15,17 @@ const pane = (bodyRows: number) =>
     },
   }) as const
 const PANE = pane(30)
+// the band above the prompt, where a diff, a commit, a stash and every confirm show
+const BAND = {
+  component: 'AbovePrompt',
+  props: { hasSurvey: false, isWorking: false, maxRows: 40, bodyColumns: 100, scroll: { offset: 0, bodyRows: 39 }, view: {} },
+} as const
+// With nothing to show the band passes to the engine's own; this stands for it
+const engineBand = (on: Parameters<TestBody>[1]) =>
+  on('ui.render', { component: 'AbovePrompt' }, ($, e) => {
+    const { Box } = $.ui.resolve(e)
+    return <Box key="engine-band" />
+  })
 // what the engine stamps on a command the person typed
 const TYPED = { origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 120 } } as const
 const ok = (stdout: string, exitCode = 0, stderr = '') => ({ value: { exitCode, stdout, stderr, isStdoutTruncated: false, isStderrTruncated: false } })
@@ -128,7 +139,8 @@ test('git runs in the session root, not where a shell cd left the session', asyn
   expect(cwds.every(c => c === '/home/u/wt-a')).toBe(true)
 })
 
-test('pressing a file swaps the graph panel for its diff, and back', async ($, on) => {
+test('pressing a file shows its diff in the band, wrapped; the graph stays; close or a second press shuts it', async ($, on) => {
+  engineBand(on)
   mock.clock(on, { now: 1000 })
   const calls: string[][] = []
   on('process.run', async (_$, e) => {
@@ -142,22 +154,54 @@ test('pressing a file swaps the graph panel for its diff, and back', async ($, o
   await $.command.run({ command: 'git', args: '', ...TYPED })
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ plugin: 'git-pane', surface, ...PANE })
+    const band = await $.ui.mount({ plugin: 'git-pane', surface, ...BAND })
+    expect(await band.find({ type: 'Text', text: /Diff:/ })).toBeUndefined() // nothing picked: no band
     await ui.press({ key: 'f:a.py' })
-    expect(await ui.find({ type: 'Text', text: /Diff: a\.py/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /\+new a\.py/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /abc123/ })).toBeUndefined()
+    expect(await band.find({ type: 'Text', text: /^Diff: a\.py$/ })).toBeDefined()
+    expect((await band.find({ type: 'Text', text: /\+new a\.py/ }))?.props.wrap).toBe('wrap')
+    expect(await ui.find({ type: 'Text', text: /\+new a\.py/ })).toBeUndefined() // not in the pane
+    expect(await ui.find({ type: 'Text', text: /abc123/ })).toBeDefined() // the graph stays
 
-    await ui.press({ key: 'diff-back' })
-    expect(await ui.find({ type: 'Text', text: /abc123/ })).toBeDefined()
+    await band.press({ key: 'detail-close' })
+    expect(await band.find({ type: 'Text', text: /Diff:/ })).toBeUndefined()
 
     await ui.press({ key: 'f:b.py' })
-    expect(await ui.find({ type: 'Text', text: /\+new b\.py/ })).toBeDefined()
+    expect(await band.find({ type: 'Text', text: /\+new b\.py/ })).toBeDefined()
     await ui.press({ key: 'f:b.py' })
-    expect(await ui.find({ type: 'Text', text: /abc123/ })).toBeDefined()
+    expect(await band.find({ type: 'Text', text: /Diff:/ })).toBeUndefined()
+    await band.unmount()
     await ui.unmount()
   }
   expect(calls.some(a => a.includes('--no-index') && a.at(-1) === 'b.py')).toBe(true)
   expect(calls.some(a => a.includes('HEAD') && a.at(-1) === 'a.py')).toBe(true)
+})
+
+test('an untracked folder shows the diff of each file in it, not git diff on the folder', async ($, on) => {
+  engineBand(on)
+  mock.clock(on, { now: 1000 })
+  const calls: string[][] = []
+  on('process.run', async (_$, e) => {
+    calls.push([...e.argv])
+    const a = e.argv
+    if (a[1] === 'status') return ok('## main\n?? gitops/\n')
+    if (a[1] === 'log') return ok('* abc123 (HEAD -> main) first\n')
+    if (a[1] === 'ls-files') return ok('gitops/a.yaml\0gitops/sub/b.yaml\0')
+    // git itself: a folder after /dev/null is looked into for a file named null
+    if (a.includes('--no-index') && a.at(-1)?.endsWith('/')) return ok('', 1, `error: Could not access '${a.at(-1)}null'`)
+    return ok(`diff --git x\n+new ${a.at(-1)}\n`)
+  })
+  on('ui.open', async () => ({ value: { isPlaced: true } }))
+  on('session.root', async () => ({ value: '/home/u/wt-a' }))
+  await $.command.run({ command: 'git', args: '', ...TYPED })
+  const ui = await $.ui.mount({ plugin: 'git-pane', surface: 'terminal', ...PANE })
+  const band = await $.ui.mount({ plugin: 'git-pane', surface: 'terminal', ...BAND })
+  await ui.press({ key: 'f:gitops/' })
+  expect(await band.find({ type: 'Text', text: /Could not access/ })).toBeUndefined()
+  expect(await band.find({ type: 'Text', text: /\+new gitops\/a\.yaml/ })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: /\+new gitops\/sub\/b\.yaml/ })).toBeDefined()
+  expect(calls.find(a => a[1] === 'ls-files')).toEqual(['git', 'ls-files', '--others', '--exclude-standard', '-z', '--', 'gitops/'])
+  await band.unmount()
+  await ui.unmount()
 })
 
 test('each panel scrolls on its own: tree, Changes and Graph', async ($, on) => {
@@ -526,7 +570,8 @@ test('the action buttons run fetch, pull --ff-only, push, stash and stash pop', 
   await setup($, on, repo(calls))
   const ui = await $.ui.mount({ plugin: 'git-pane', surface: 'terminal', ...PANE })
   for (const act of ['fetch', 'pull', 'push', 'stash', 'stash-pop']) await ui.press({ key: `act:${act}` })
-  expect(ran(calls, 'fetch', 'pull', 'push', 'stash')).toEqual([
+  // the poll's `stash list` aside
+  expect(ran(calls, 'fetch', 'pull', 'push', 'stash').filter(a => a[2] !== 'list')).toEqual([
     ['git', 'fetch'],
     ['git', 'pull', '--ff-only'],
     ['git', 'push'],
@@ -668,7 +713,7 @@ test('one git job at a time: a second press while one runs does nothing', async 
   await ui.press({ key: 'act:stash-pop' })
   open()
   await first
-  expect(ran(calls, 'stash')).toEqual([['git', 'stash', 'pop']])
+  expect(ran(calls, 'stash').filter(a => a[2] !== 'list')).toEqual([['git', 'stash', 'pop']])
 
   await ui.press({ key: 'branch' })
   await rightClick(ui, 'b:dev')
@@ -708,6 +753,7 @@ test('a git call that times out is reported, not dropped', async ($, on) => {
 })
 
 test('long changed paths and branch names are cut, not wrapped', async ($, on) => {
+  engineBand(on)
   const long = 'x'.repeat(200)
   const calls: string[][] = []
   mock.clock(on, { now: 1000 })
@@ -718,7 +764,9 @@ test('long changed paths and branch names are cut, not wrapped', async ($, on) =
   const ui = await $.ui.mount({ plugin: 'git-pane', surface: 'terminal', ...PANE })
   expect((await ui.find({ type: 'Text', text: new RegExp(`^ M ${long}`) }))?.props.wrap).toBe('truncate')
   await ui.press({ key: `f:${long}.py` })
-  expect((await ui.find({ type: 'Text', text: /^Diff: x+/ }))?.props.wrap).toBe('truncate')
+  const band = await $.ui.mount({ plugin: 'git-pane', surface: 'terminal', ...BAND })
+  expect((await band.find({ type: 'Text', text: /^Diff: x+/ }))?.props.wrap).toBe('truncate') // the title row stays one row
+  await band.unmount()
   await ui.unmount()
 })
 
@@ -784,10 +832,10 @@ test('the graph shows the current branch by default; all and current switch it, 
   await clock.advance(3000)
   expect(last()).not.toContain('--all')
 
-  // a diff in the lower panel: no scope buttons beside its title
+  // a diff opens in the band: the graph and its scope buttons stay
   await ui.press({ key: 'graph-all' })
   await setupDiff(ui)
-  expect(await ui.find({ type: 'Button', key: 'graph-all' })).toBeUndefined()
+  expect(await ui.find({ type: 'Button', key: 'graph-all' })).toBeDefined()
   await ui.unmount()
 })
 const setupDiff = (ui: { press: (t: { key: string }) => Promise<unknown> }) => ui.press({ key: 'f:new.py' })
@@ -823,6 +871,7 @@ for (const glyphs of ['text', 'plain'] as const)
 // The tree's preview has a `back` Button of its own: with the tree's preview and
 // git-pane's Diff both open, each back closes its own.
 test('the Diff back button and the tree preview back button are told apart', { options: { open: 'preview' } }, async ($, on) => {
+  engineBand(on)
   const clock = mock.clock(on, { now: 1000 })
   mock.env(on, {})
   const calls: string[][] = []
@@ -850,12 +899,14 @@ test('the Diff back button and the tree preview back button are told apart', { o
   await ui.post({ press: '/home/u/wt-a/README.md' }, { in: 'rows' })
   await ui.post({ press: '/home/u/wt-a/README.md' }, { in: 'rows' })
   await clock.advance(100)
-  await ui.press({ key: 'f:new.py' }) // git-pane's Diff
-  expect(await ui.find({ type: 'Text', text: /^Diff: new\.py/ })).toBeDefined()
+  await ui.press({ key: 'f:new.py' }) // git-pane's Diff, in the band
+  const band = await $.ui.mount({ plugin: 'git-pane', surface: 'terminal', ...BAND })
+  expect(await band.find({ type: 'Text', text: /^Diff: new\.py/ })).toBeDefined()
   expect((await ui.findAll({ type: 'Button', key: 'back' })).length).toBe(1) // the tree preview's own
-  await ui.press({ key: 'diff-back' })
-  expect(await ui.find({ type: 'Text', text: /^Diff: / })).toBeUndefined()
+  await band.press({ key: 'detail-close' })
+  expect(await band.find({ type: 'Text', text: /^Diff: / })).toBeUndefined()
   expect(await ui.find({ type: 'Button', key: 'back' })).toBeDefined() // the preview stays open
+  await band.unmount()
   await ui.unmount()
   await clock.advance(100)
 })
@@ -971,7 +1022,8 @@ test('the wheel over the tree scrolls the tree', async ($, on) => {
   await clock.advance(100)
 })
 
-test('a click on a commit in the graph shows that commit: message, files and changes; back returns to the graph', async ($, on) => {
+test('a click on a commit in the graph shows that commit in the band: message, files and changes; close shuts it', async ($, on) => {
+  engineBand(on)
   mock.clock(on, { now: 1000 })
   const calls: string[][] = []
   const base = repo(calls)
@@ -1000,36 +1052,37 @@ test('a click on a commit in the graph shows that commit: message, files and cha
   await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'chit:def5678' })
   await ui.pointer({ type: 'up', x: 0, y: 0, button: 'left', in: 'chit:def5678' })
   expect(ran(calls, 'show')).toEqual([['git', 'show', '--no-color', '--stat', '--patch', '--diff-merges=first-parent', 'def5678']])
-  expect(await ui.find({ type: 'Text', text: /^Commit def5678/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /the message/ })).toBeDefined()
-  expect((await ui.find({ type: 'Text', text: /^\+new$/ }))?.props.color).toBe('green')
+  const band = await $.ui.mount({ plugin: 'git-pane', surface: 'terminal', ...BAND })
+  expect(await band.find({ type: 'Text', text: /^Commit def5678/ })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: /the message/ })).toBeDefined()
+  expect((await band.find({ type: 'Text', text: /^\+new$/ }))?.props.color).toBe('green')
   // a rule between the message and the files, and between the files and the patch
-  const rules = await ui.findAll({ type: 'Text', text: /^─+$/ })
+  const rules = await band.findAll({ type: 'Text', text: /^─+$/ })
   expect(rules.length).toBe(2)
-  const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
+  const texts = (await band.findAll({ type: 'Text' })).map(t => t.text)
   const at = (re: RegExp) => texts.findIndex(t => re.test(t))
   expect(at(/the message/)).toBeLessThan(at(/^─+$/))
   expect(at(/^─+$/)).toBeLessThan(at(/^ a\.py \| 2 /))
   // the stat's bars in color: + green, - red
-  const bars = await ui.findAll({ type: 'Text', text: /^(\+|-|\+-|---)$/ })
+  const bars = await band.findAll({ type: 'Text', text: /^(\+|-|\+-|---)$/ })
   expect(bars.some(t => t.text === '+' && t.props.color === 'green')).toBe(true)
   expect(bars.some(t => t.text === '---' && t.props.color === 'red')).toBe(true)
-  expect(await ui.find({ type: 'Text', text: /abc1234/ })).toBeUndefined()
-
-  // a file in the stat takes a click: that file's change in this commit; back goes to the commit
-  expect(await ui.find({ type: 'Client', key: 'fhit:1' })).toBeDefined()
-  expect((await ui.findAll({ type: 'Client' })).filter(c => String(c.key).startsWith('fhit:')).length).toBe(2) // not the summary line
-  await ui.resize({ columns: 40, rows: 1, in: 'fhit:1' })
-  await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'fhit:1' })
-  await ui.pointer({ type: 'up', x: 0, y: 0, button: 'left', in: 'fhit:1' })
-  expect(ran(calls, 'show').at(-1)).toEqual(['git', 'show', '--no-color', '--format=', '--patch', '--diff-merges=first-parent', 'def5678', '--', 'b.py'])
-  expect(await ui.find({ type: 'Text', text: /^def5678 · b\.py/ })).toBeDefined()
-  expect((await ui.find({ type: 'Text', text: /^\+now b\.py$/ }))?.props.color).toBe('green')
+  // the graph stays in the pane, the picked commit marked
+  expect((await ui.find({ type: 'Text', text: /def5678 other/ }))?.props.inverse).toBe(true)
   expect(await ui.find({ type: 'Text', text: /the message/ })).toBeUndefined()
-  await ui.press({ key: 'diff-back' })
-  expect(await ui.find({ type: 'Text', text: /the message/ })).toBeDefined()
-  await ui.press({ key: 'diff-back' })
-  expect(await ui.find({ type: 'Text', text: /abc1234/ })).toBeDefined()
+
+  // a file in the stat takes a press: that file's change in this commit; back goes to the commit
+  expect((await band.findAll({ type: 'Button' })).filter(b => String(b.key).startsWith('file:')).length).toBe(2) // not the summary line
+  await band.press({ key: 'file:1' })
+  expect(ran(calls, 'show').at(-1)).toEqual(['git', 'show', '--no-color', '--format=', '--patch', '--diff-merges=first-parent', 'def5678', '--', 'b.py'])
+  expect(await band.find({ type: 'Text', text: /^def5678 · b\.py/ })).toBeDefined()
+  expect((await band.find({ type: 'Text', text: /^\+now b\.py$/ }))?.props.color).toBe('green')
+  expect(await band.find({ type: 'Text', text: /the message/ })).toBeUndefined()
+  await band.press({ key: 'detail-back' })
+  expect(await band.find({ type: 'Text', text: /the message/ })).toBeDefined()
+  await band.press({ key: 'detail-close' })
+  expect(await band.find({ type: 'Text', text: /the message/ })).toBeUndefined()
+  await band.unmount()
   await ui.unmount()
 })
 
@@ -1056,3 +1109,170 @@ for (const placed of [false, true])
     expect(toasts.filter(t => /\/git/.test(t) && /narrow|wait/i.test(t)).length).toBe(placed ? 0 : 1)
     await clock.advance(100)
   })
+
+test('the Stash tab lists stashes; stash pop takes the picked one by its hash, or none once it is gone', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  const calls: string[][] = []
+  const toasts: string[] = []
+  on('ui.toast', async (_$, e) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
+  let list = 'aaa1 stash@{0} On main: newer\nbbb2 stash@{1} On main: older\n'
+  const base = repo(calls)
+  on('process.run', async (_$, e) => {
+    if (e.argv[1] === 'stash' && e.argv[2] === 'list') return ok(list)
+    return base(_$, e)
+  })
+  on('ui.open', async () => ({ value: { isPlaced: true } }))
+  on('session.root', async () => ({ value: '/home/u/wt-a' }))
+  await $.command.run({ command: 'git', args: '', ...TYPED })
+  const ui = await $.ui.mount({ plugin: 'git-pane', surface: 'terminal', ...PANE })
+  expect(await ui.find({ type: 'Text', text: /^Stash \(2\)$/ })).toBeDefined()
+  await ui.press({ key: 'tab-stash' })
+  expect(await ui.find({ type: 'Text', text: /^stash@\{1\} On main: older$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /new\.py/ })).toBeUndefined() // the changes give way
+  await ui.press({ key: 's:bbb2' })
+  // a stash pushed meanwhile shifts the picked one to stash@{2}
+  list = 'ccc3 stash@{0} On main: newest\naaa1 stash@{1} On main: newer\nbbb2 stash@{2} On main: older\n'
+  await ui.press({ key: 'act:stash-pop' })
+  expect(stashRuns(calls)).toEqual([['git', 'stash', 'pop', 'stash@{2}']])
+
+  await ui.press({ key: 's:aaa1' })
+  list = 'ccc3 stash@{0} On main: newest\n' // dropped elsewhere before the press
+  await ui.press({ key: 'act:stash-pop' })
+  expect(stashRuns(calls).length).toBe(1)
+  expect(toasts.some(t => /gone/.test(t))).toBe(true)
+  await ui.unmount()
+})
+
+// git calls that change something, the poll's and the band's reads aside
+const stashRuns = (calls: string[][]) => ran(calls, 'stash').filter(a => !['list', 'show'].includes(a[2] ?? ''))
+const writes = (calls: string[][]) => ran(calls, 'restore', 'clean', 'stash').filter(a => !['list', 'show'].includes(a[2] ?? ''))
+
+test('revert asks first in the pane, then restores the file to HEAD; an untracked file is deleted, a rename restores both paths', async ($, on) => {
+  engineBand(on)
+  mock.clock(on, { now: 1000 })
+  const calls: string[][] = []
+  const base = repo(calls)
+  on('process.run', async (_$, e) =>
+    e.argv[1] === 'status' && !e.argv.includes('--porcelain') ? (calls.push([...e.argv]), ok('## main\n M a.py\n?? b.py\nR  old.py -> new.py\n')) : base(_$, e),
+  )
+  on('ui.open', async () => ({ value: { isPlaced: true } }))
+  on('session.root', async () => ({ value: '/home/u/wt-a' }))
+  await $.command.run({ command: 'git', args: '', ...TYPED })
+  const ui = await $.ui.mount({ plugin: 'git-pane', surface: 'terminal', ...pane(40) }) // Changes shows all three
+  const band = await $.ui.mount({ plugin: 'git-pane', surface: 'terminal', ...BAND })
+
+  await ui.press({ key: 'f:a.py' })
+  await band.press({ key: 'detail-revert' })
+  expect(await ui.find({ type: 'Text', text: /revert a\.py/ })).toBeDefined()
+  expect(writes(calls)).toEqual([]) // asked, not run
+  await ui.press({ key: 'confirm-cancel' })
+  expect(await ui.find({ type: 'Text', text: /revert a\.py/ })).toBeUndefined()
+  expect(writes(calls)).toEqual([])
+  await band.press({ key: 'detail-revert' })
+  await ui.press({ key: 'confirm-yes' })
+  expect(writes(calls)).toEqual([['git', 'restore', '--source=HEAD', '--staged', '--worktree', '--', 'a.py']])
+
+  await ui.press({ key: 'f:b.py' })
+  await band.press({ key: 'detail-revert' })
+  expect(await ui.find({ type: 'Text', text: /delete .*b\.py/ })).toBeDefined() // says the file goes
+  await ui.press({ key: 'confirm-yes' })
+  expect(writes(calls).at(-1)).toEqual(['git', 'clean', '-f', '--', 'b.py'])
+
+  await ui.press({ key: 'f:new.py' })
+  await band.press({ key: 'detail-revert' })
+  await ui.press({ key: 'confirm-yes' })
+  expect(writes(calls).at(-1)).toEqual(['git', 'restore', '--source=HEAD', '--staged', '--worktree', '--', 'old.py', 'new.py'])
+  await band.unmount()
+  await ui.unmount()
+})
+
+test('revert all asks first, counting the untracked files it deletes, then restores and cleans the whole worktree', async ($, on) => {
+  engineBand(on)
+  mock.clock(on, { now: 1000 })
+  const calls: string[][] = []
+  const base = repo(calls)
+  on('process.run', async (_$, e) =>
+    e.argv[1] === 'status' && !e.argv.includes('--porcelain') ? ok('## main\n M a.py\n?? b.py\n?? c.py\n') : base(_$, e),
+  )
+  on('ui.open', async () => ({ value: { isPlaced: true } }))
+  on('session.root', async () => ({ value: '/home/u/wt-a' }))
+  await $.command.run({ command: 'git', args: '', ...TYPED })
+  const ui = await $.ui.mount({ plugin: 'git-pane', surface: 'terminal', ...PANE })
+  const band = await $.ui.mount({ plugin: 'git-pane', surface: 'terminal', ...BAND })
+  await ui.press({ key: 'revert-all' })
+  expect(await ui.find({ type: 'Text', text: /revert all 3 changes.*2 untracked/ })).toBeDefined()
+  expect(writes(calls)).toEqual([])
+  await ui.press({ key: 'confirm-yes' })
+  expect(writes(calls)).toEqual([
+    ['git', 'restore', '--source=HEAD', '--staged', '--worktree', '--', ':/'],
+    ['git', 'clean', '-fd', '--', ':/'],
+  ])
+  await band.unmount()
+  await ui.unmount()
+})
+
+test('with the band folded (not drawn), revert all still asks and runs from the pane', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  const calls: string[][] = []
+  const base = repo(calls)
+  on('process.run', async (_$, e) => (e.argv[1] === 'status' && !e.argv.includes('--porcelain') ? ok('## main\n M a.py\n') : base(_$, e)))
+  on('ui.open', async () => ({ value: { isPlaced: true } }))
+  on('session.root', async () => ({ value: '/home/u/wt-a' }))
+  await $.command.run({ command: 'git', args: '', ...TYPED })
+  const ui = await $.ui.mount({ plugin: 'git-pane', surface: 'terminal', ...PANE })
+  await ui.press({ key: 'revert-all' })
+  expect(await ui.find({ type: 'Text', text: /revert all 1 changes/ })).toBeDefined()
+  await ui.press({ key: 'confirm-yes' })
+  expect(writes(calls)).toEqual([
+    ['git', 'restore', '--source=HEAD', '--staged', '--worktree', '--', ':/'],
+    ['git', 'clean', '-fd', '--', ':/'],
+  ])
+  await ui.unmount()
+})
+
+test('a picked stash shows in the band; its apply and drop sit in the pane: apply keeps it or deletes it as chosen; drop asks first', async ($, on) => {
+  engineBand(on)
+  mock.clock(on, { now: 1000 })
+  const calls: string[][] = []
+  const base = repo(calls)
+  let list = 'aaa1 stash@{0} On main: newer\nbbb2 stash@{1} On main: older\n'
+  on('ui.toast', async () => ({ value: undefined }))
+  on('process.run', async (_$, e) => {
+    if (e.argv[1] === 'stash' && e.argv[2] === 'list') return ok(list)
+    if (e.argv[1] === 'stash' && e.argv[2] === 'show') return (calls.push([...e.argv]), ok('diff --git a/s.py b/s.py\n+stashed line\n'))
+    return base(_$, e)
+  })
+  on('ui.open', async () => ({ value: { isPlaced: true } }))
+  on('session.root', async () => ({ value: '/home/u/wt-a' }))
+  await $.command.run({ command: 'git', args: '', ...TYPED })
+  const ui = await $.ui.mount({ plugin: 'git-pane', surface: 'terminal', ...PANE })
+  const band = await $.ui.mount({ plugin: 'git-pane', surface: 'terminal', ...BAND })
+  await ui.press({ key: 'tab-stash' })
+  await ui.press({ key: 's:bbb2' })
+  expect(ran(calls, 'stash').filter(a => a[2] === 'show').at(-1)).toEqual(['git', 'stash', 'show', '-p', '--include-untracked', '--no-color', 'stash@{1}'])
+  expect(await band.find({ type: 'Text', text: /^Stash stash@\{1\} On main: older$/ })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: /\+stashed line/ })).toBeDefined()
+
+  await ui.press({ key: 'stash-apply' }) // keep, by default
+  expect(stashRuns(calls)).toEqual([['git', 'stash', 'apply', 'stash@{1}']])
+  await ui.press({ key: 'stash-delete' })
+  await ui.press({ key: 'stash-apply' })
+  expect(stashRuns(calls).at(-1)).toEqual(['git', 'stash', 'pop', 'stash@{1}'])
+
+  await ui.press({ key: 'stash-drop' })
+  expect(await ui.find({ type: 'Text', text: /drop stash@\{1\}/ })).toBeDefined()
+  expect(stashRuns(calls).length).toBe(2) // asked, not run
+  // a stash pushed before the yes: stash@{1} is another one now, so nothing drops
+  list = 'ccc3 stash@{0} On main: newest\naaa1 stash@{1} On main: newer\nbbb2 stash@{2} On main: older\n'
+  await ui.press({ key: 'confirm-yes' })
+  expect(stashRuns(calls).length).toBe(2)
+  await ui.press({ key: 'stash-drop' })
+  expect(await ui.find({ type: 'Text', text: /drop stash@\{2\}/ })).toBeDefined()
+  await ui.press({ key: 'confirm-yes' })
+  expect(stashRuns(calls).at(-1)).toEqual(['git', 'stash', 'drop', 'stash@{2}'])
+  await band.unmount()
+  await ui.unmount()
+})

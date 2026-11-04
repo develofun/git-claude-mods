@@ -28,6 +28,19 @@ const commitText = atom({ plugin: 'git-pane', key: 'commitText' } as const, '')
 const commitFiles = atom({ plugin: 'git-pane', key: 'commitFiles' } as const, [] as string[])
 const commitFile = atom({ plugin: 'git-pane', key: 'commitFile' } as const, null as string | null)
 const commitFileText = atom({ plugin: 'git-pane', key: 'commitFileText' } as const, '')
+// the Changes panel's tab; `git stash list` as "<hash> stash@{n} <message>"; the
+// stash picked there, by its hash: its stash@{n} shifts as stashes come and go
+const changesTab = atom({ plugin: 'git-pane', key: 'changesTab' } as const, 'changes' as 'changes' | 'stash')
+const stashes = atom({ plugin: 'git-pane', key: 'stashes' } as const, [] as string[])
+const stashSel = atom({ plugin: 'git-pane', key: 'stashSel' } as const, null as string | null)
+// what the picked stash holds (`git stash show -p`), and whether its apply keeps it
+const stashShow = atom({ plugin: 'git-pane', key: 'stashShow' } as const, '')
+const stashKeep = atom({ plugin: 'git-pane', key: 'stashKeep' } as const, true)
+// a revert or drop waiting for its yes in the band: what it does, and the question
+type Confirm = { kind: 'revert' | 'revert-all' | 'drop'; target: string; text: string }
+const confirm = atom({ plugin: 'git-pane', key: 'confirm' } as const, null as Confirm | null)
+// ponytail: the band draws this many lines of a detail; a longer one says how many more
+const DETAIL_MAX = 2000
 
 // Two presses on one branch within this many ms are a double click: a press
 // carries no click count.
@@ -143,28 +156,57 @@ function gitError(ran: ProcessRunResult) {
   return ran.stdout.trim().split('\n').pop() || `git exited ${ran.exitCode}`
 }
 
+const unquote = (p: string) => (p.startsWith('"') ? p.slice(1, -1) : p)
 // `git status --short` line -> path ("R  old -> new" takes new, quoted paths unquoted)
 function pathOf(line: string) {
-  const p = line.slice(3).split(' -> ').pop() ?? ''
-  return p.startsWith('"') ? p.slice(1, -1) : p
+  return unquote(line.slice(3).split(' -> ').pop() ?? '')
 }
+// every path the line names: a rename's old one too
+function pathsOf(line: string) {
+  return line.slice(3).split(' -> ').map(unquote)
+}
+
+// ponytail: an untracked folder shows its first DIR_MAX files, one git call each; the rest are counted
+const DIR_MAX = 50
 
 async function diffOf($: EngineInterface, line: string) {
   const path = pathOf(line)
-  const ran = line.startsWith('??')
-    ? await git($, ['diff', '--no-color', '--no-index', '--', '/dev/null', path])
-    : await git($, ['diff', '--no-color', 'HEAD', '--', path])
-  return (ran.stdout || ran.stderr).trimEnd() || '(no diff)'
+  const out = (ran: ProcessRunResult) => (ran.stdout || ran.stderr).trimEnd()
+  if (!line.startsWith('??')) return out(await git($, ['diff', '--no-color', 'HEAD', '--', path])) || '(no diff)'
+  // a folder ("dir/"): git diff --no-index would look in it for a file named null, so diff its files
+  const files = path.endsWith('/')
+    ? (await git($, ['ls-files', '--others', '--exclude-standard', '-z', '--', path])).stdout.split('\0').filter(Boolean)
+    : [path]
+  const parts: string[] = []
+  for (const f of files.slice(0, DIR_MAX)) parts.push(out(await git($, ['diff', '--no-color', '--no-index', '--', '/dev/null', f])))
+  if (files.length > DIR_MAX) parts.push(`… ${files.length - DIR_MAX} more files`)
+  return parts.filter(Boolean).join('\n') || '(no diff)'
+}
+
+async function setTab($: EngineInterface, tab: 'changes' | 'stash') {
+  await update($, changesTab, () => tab)
+  await update($, changesTop, () => 0)
+}
+
+// One detail shows in the band at a time: a file's diff, a commit (or a file of
+// it) or a stash. Picking one drops the others and any question waiting.
+async function closeDetail($: EngineInterface) {
+  await update($, selected, () => null)
+  await update($, commit, () => null)
+  await update($, commitFile, () => null)
+  await update($, stashSel, () => null)
+  await update($, confirm, () => null)
 }
 
 async function refresh($: EngineInterface) {
   // read here, by the poll too, so the scope chosen stays chosen
   const all = await read($, graphAll)
-  const [root, status, graph] = await Promise.all([
+  const [root, status, graph, stash] = await Promise.all([
     git($, ['rev-parse', '--show-toplevel']),
     git($, ['status', '--short', '--branch', '--untracked-files=all']),
     // ponytail: --graph walks the whole history (topo order); 15s, cache it if a huge repo needs more
     git($, ['log', '--graph', '--oneline', '--decorate', ...(all ? ['--all'] : []), '-n', '200'], 15_000),
+    git($, ['stash', 'list', '--format=%H %gd %s']),
   ])
   const next: GitView =
     status.exitCode !== 0
@@ -173,6 +215,10 @@ async function refresh($: EngineInterface) {
   await update($, view, prev =>
     prev.root === next.root && prev.status === next.status && prev.graph === next.graph && prev.error === next.error ? prev : next,
   )
+  const list = next.error || stash.exitCode !== 0 ? [] : stash.stdout.split('\n').filter(l => l.includes(' '))
+  await update($, stashes, prev => (prev.join('\n') === list.join('\n') ? prev : list))
+  // a picked stash that is gone (popped, dropped) is picked no more
+  await update($, stashSel, s => (s !== null && !list.some(l => l.startsWith(`${s} `)) ? null : s))
 
   const sel = await read($, selected)
   if (sel === null) return
@@ -188,12 +234,8 @@ async function refresh($: EngineInterface) {
 
 async function toggle($: EngineInterface, line: string) {
   const sel = await read($, selected)
-  await update($, bottomTop, () => 0)
-  await update($, commit, () => null)
-  if (sel !== null && pathOf(sel) === pathOf(line)) {
-    await update($, selected, () => null)
-    return
-  }
+  await closeDetail($)
+  if (sel !== null && pathOf(sel) === pathOf(line)) return
   await update($, diff, () => '…')
   await update($, selected, () => line)
   const text = await diffOf($, line)
@@ -204,14 +246,6 @@ async function setGraphAll($: EngineInterface, all: boolean) {
   await update($, graphAll, () => all)
   await update($, bottomTop, () => 0)
   await refresh($)
-}
-
-// back: from a commit's file to the commit, from anything else to the graph
-async function back($: EngineInterface) {
-  await update($, bottomTop, () => 0)
-  if ((await read($, commitFile)) !== null) return update($, commitFile, () => null)
-  await update($, selected, () => null)
-  await update($, commit, () => null)
 }
 
 // Marks in a commit's text: a rule line, and a line of the files' stat (told by
@@ -238,11 +272,9 @@ function withRules(text: string) {
 // A commit picked in the graph: its message, the files it touched and its changes.
 // The hash is hex from the graph line, never an option.
 async function showCommit($: EngineInterface, hash: string) {
-  await update($, bottomTop, () => 0)
-  await update($, selected, () => null)
+  await closeDetail($)
   await update($, commitText, () => '…')
   await update($, commit, () => hash)
-  await update($, commitFile, () => null)
   // a merge shows its changes against its first parent, stat and patch alike
   const [ran, names] = await Promise.all([
     git($, ['show', '--no-color', '--stat', '--patch', '--diff-merges=first-parent', hash], 15_000),
@@ -257,7 +289,6 @@ async function showCommitFile($: EngineInterface, index: number) {
   const hash = await read($, commit)
   const path = (await read($, commitFiles))[index]
   if (hash === null || path === undefined) return
-  await update($, bottomTop, () => 0)
   await update($, commitFileText, () => '…')
   await update($, commitFile, () => path)
   const ran = await git($, ['show', '--no-color', '--format=', '--patch', '--diff-merges=first-parent', hash, '--', path], 15_000)
@@ -392,8 +423,101 @@ async function integrate($: EngineInterface) {
   void $.ui.toast(`${Kind}d ${key.slice(2)}`)
 }
 
+// The picked stash's stash@{n}, found by its hash now: stashes made since shift
+// it. Gone (popped or dropped elsewhere): unpicked, said, and none.
+async function pickedStash($: EngineInterface, what: string) {
+  const hash = await read($, stashSel)
+  if (hash === null) return null
+  const listed = (await git($, ['stash', 'list', '--format=%H %gd'])).stdout.split('\n')
+  const ref = listed.find(l => l.startsWith(`${hash} `))?.split(' ')[1]
+  if (ref) return ref
+  await update($, stashSel, () => null)
+  void $.ui.toast(`${what}: the picked stash is gone`)
+  await refresh($)
+  return null
+}
+
+// A stash row: picks it and shows what it holds in the band; again, unpicks it.
+async function pickStash($: EngineInterface, hash: string) {
+  const was = await read($, stashSel)
+  await closeDetail($)
+  if (was === hash) return
+  await update($, stashShow, () => '…')
+  await update($, stashSel, () => hash)
+  const ref = await pickedStash($, 'stash show')
+  if (!ref) return
+  const ran = await git($, ['stash', 'show', '-p', '--include-untracked', '--no-color', ref], 15_000)
+  await update($, stashShow, () => (ran.stdout || ran.stderr).trimEnd() || '(empty)')
+}
+
+// What a git job that changes the worktree says, then the pane catches up.
+async function report($: EngineInterface, name: string, ran: ProcessRunResult) {
+  void $.ui.toast(ran.exitCode === 0 ? `${name}: done` : `${name} failed: ${gitError(ran)}`)
+  await refresh($)
+  return ran.exitCode === 0
+}
+
+// apply: keep the stash or, as chosen, drop it once applied (pop keeps it on a conflict)
+async function applyStash($: EngineInterface) {
+  const keep = await read($, stashKeep)
+  const ref = await pickedStash($, 'stash apply')
+  if (!ref) return
+  await report($, `stash ${keep ? 'apply' : 'pop'} ${ref}`, await git($, ['stash', keep ? 'apply' : 'pop', ref], 60_000))
+}
+
+// The band's revert, revert all and drop ask first; this is the yes.
+async function askRevert($: EngineInterface, line: string) {
+  const path = pathOf(line)
+  const text = line.startsWith('??')
+    ? `delete the untracked file ${path}?`
+    : line[0] === 'A'
+      ? `revert ${path}? It is new, so the file is deleted.`
+      : `revert ${path} to HEAD?`
+  await update($, confirm, () => ({ kind: 'revert', target: line, text }))
+}
+
+async function askRevertAll($: EngineInterface) {
+  const changes = (await read($, view)).status.split('\n').slice(1)
+  const untracked = changes.filter(l => l.startsWith('??')).length
+  const text = `revert all ${changes.length} changes to HEAD?${untracked ? ` ${untracked} untracked file(s) are deleted.` : ''}`
+  await update($, confirm, () => ({ kind: 'revert-all', target: '', text }))
+}
+
+async function askDrop($: EngineInterface) {
+  const ref = await pickedStash($, 'stash drop')
+  if (ref) await update($, confirm, () => ({ kind: 'drop', target: ref, text: `drop ${ref}? Its changes are gone.` }))
+}
+
+async function confirmed($: EngineInterface) {
+  const c = await read($, confirm)
+  await update($, confirm, () => null)
+  if (c === null) return
+  if (c.kind === 'revert') {
+    const ok = await report(
+      $,
+      `revert ${pathOf(c.target)}`,
+      c.target.startsWith('??')
+        ? await git($, ['clean', '-f', '--', pathOf(c.target)])
+        : await git($, ['restore', '--source=HEAD', '--staged', '--worktree', '--', ...pathsOf(c.target)]),
+    )
+    if (ok) await update($, selected, () => null)
+    return
+  }
+  if (c.kind === 'revert-all') {
+    // `:/`: the whole worktree, wherever in it the session root is; ignored files stay
+    const restored = await git($, ['restore', '--source=HEAD', '--staged', '--worktree', '--', ':/'], 30_000)
+    if (restored.exitCode !== 0) return report($, 'revert all', restored)
+    if (await report($, 'revert all', await git($, ['clean', '-fd', '--', ':/'], 30_000))) await update($, selected, () => null)
+    return
+  }
+  // drop: asked by its stash@{n}; picked by hash, so check it still is that one
+  const ref = await pickedStash($, 'stash drop')
+  if (ref !== c.target) return void $.ui.toast('stash drop: the stashes moved, pick it again')
+  await report($, `stash drop ${ref}`, await git($, ['stash', 'drop', ref]))
+}
+
 async function act($: EngineInterface, id: ActionId) {
-  const name = id.replace('-', ' ')
+  let name = id.replace('-', ' ')
   const head = (await read($, view)).status.split('\n')[0] ?? ''
   const args: Record<ActionId, string[]> = {
     fetch: ['fetch'],
@@ -402,6 +526,13 @@ async function act($: EngineInterface, id: ActionId) {
     push: head.includes('...') ? ['push'] : ['push', '-u', 'origin', 'HEAD'],
     stash: ['stash', 'push'],
     'stash-pop': ['stash', 'pop'],
+  }
+  // stash pop: the picked stash
+  if (id === 'stash-pop' && (await read($, stashSel)) !== null) {
+    const ref = await pickedStash($, 'stash pop')
+    if (!ref) return
+    args['stash-pop'] = ['stash', 'pop', ref]
+    name = `stash pop ${ref}`
   }
   void $.ui.toast(`${name}…`)
   const ran = await git($, args[id], 60_000)
@@ -469,11 +600,6 @@ export const register: Register = (on, options) => {
       if (typeof (e.data as Record<string, unknown>).press === 'string') await showCommit($, e.element.slice('chit:'.length))
       return {}
     }
-    // a file line of a commit's stat: that file's change
-    if (e.requestId === PANE && e.element.startsWith('fhit:') && typeof e.data === 'object' && e.data !== null) {
-      if (typeof (e.data as Record<string, unknown>).press === 'string') await showCommitFile($, Number(e.element.slice('fhit:'.length)))
-      return {}
-    }
     if (e.requestId !== PANE || !e.element.startsWith('bhit:') || typeof e.data !== 'object' || e.data === null) return treeMessage($, e, next)
     const data = e.data as Record<string, unknown>
     if (typeof data.press === 'string') await pressBranch($, data.press)
@@ -518,18 +644,16 @@ export const register: Register = (on, options) => {
       )
     }
     const sel = await read($, selected)
-    const d = await read($, diff)
 
     const [head = '', ...changes] = v.status.split('\n')
     const picked = await read($, commit)
-    // the lower panel: a file's diff, a commit, or the graph
-    const pickedFile = await read($, commitFile)
-    const mode = sel !== null ? 'diff' : picked !== null ? (pickedFile !== null ? 'file' : 'commit') : 'graph'
-    const bottom = (
-      mode === 'diff' ? d : mode === 'file' ? await read($, commitFileText) : mode === 'commit' ? await read($, commitText) : v.graph
-    ).split('\n')
+    // the lower panel is the graph; a picked file, commit or stash shows in the band
+    const bottom = v.graph.split('\n')
     const { treeRows, changeRows, bottomRows } = layout(e.props.scroll.bodyRows)
-    const cTop = clamp(await read($, changesTop), changes.length, changeRows)
+    const tab = await read($, changesTab)
+    const stashList = await read($, stashes)
+    const listed = tab === 'stash' ? stashList : changes
+    const cTop = clamp(await read($, changesTop), listed.length, changeRows)
     const { branch, track } = branchOf(head)
 
     const header = (
@@ -675,7 +799,39 @@ export const register: Register = (on, options) => {
 
     // the tree draws to the room it is told, cut at it should it ask for more
     const tree = await drawTree(treeRows)
-    const shownChanges = changes.slice(cTop, cTop + changeRows)
+    const sSel = await read($, stashSel)
+    // the question and a picked stash's actions sit in the pane, which never folds
+    // (the band can, and stays folded); the Graph gives up their rows
+    const ask = await read($, confirm)
+    const keep = await read($, stashKeep)
+    const stashActs = tab === 'stash' && sSel !== null
+    const inner = Math.max(1, e.props.bodyColumns - 4)
+    const extra = (ask ? Math.ceil(ask.text.length / inner) + 1 : 0) + (stashActs ? 2 : 0)
+    const graphRows = Math.max(1, bottomRows - extra)
+    const shownChanges = listed.slice(cTop, cTop + changeRows)
+    const pact = (key: string, label: string, onPress: () => unknown, color?: string) => (
+      <Button key={key} plain onPress={onPress}>
+        <Text color={color}>{label}</Text>
+      </Button>
+    )
+    const choice = (key: string, isOn: boolean, label: string) => (
+      <Button key={key} plain onPress={() => update($, stashKeep, () => key === 'stash-keep')}>
+        <Text bold={isOn}>
+          {isOn ? '◉ ' : '○ '}
+          {label}
+        </Text>
+      </Button>
+    )
+    // a stash row shows "stash@{n} <message>", its hash kept for the key
+    const hashOf = (line: string) => line.slice(0, line.indexOf(' '))
+    const stashLabel = (line: string) => line.slice(line.indexOf(' ') + 1)
+    const tabButton = (id: 'changes' | 'stash', label: string) => (
+      <Button key={`tab-${id}`} plain onPress={() => setTab($, id)}>
+        <Text bold={tab === id} dimColor={tab !== id} wrap="truncate">
+          {label}
+        </Text>
+      </Button>
+    )
 
     return (
       <Box flexDirection="column" gap={0}>
@@ -686,21 +842,65 @@ export const register: Register = (on, options) => {
           </Box>
         </Box>
         <Box flexDirection="column" borderStyle="round" borderDimColor paddingX={1}>
-          <Text bold wrap="truncate">
-            Changes ({changes.length})<Text dimColor>{range(cTop, changeRows, changes.length)}</Text>
-          </Text>
-          {changes.length === 0 && <Text dimColor>clean</Text>}
-          {shownChanges.map(line => (
-            <Button key={`f:${pathOf(line)}`} plain onPress={() => toggle($, line)}>
-              <Text
-                inverse={sel !== null && pathOf(sel) === pathOf(line)}
-                color={line.startsWith('??') ? 'gray' : line[0] !== ' ' ? 'green' : 'yellow'}
-                wrap="truncate"
-              >
-                {line}
-              </Text>
-            </Button>
-          ))}
+          <Box flexDirection="row">
+            {tabButton('changes', `Changes (${changes.length})`)}
+            <Text dimColor>{' · '}</Text>
+            {tabButton('stash', `Stash (${stashList.length})`)}
+            <Text dimColor wrap="truncate">{range(cTop, changeRows, listed.length)}</Text>
+            {tab === 'changes' && changes.length > 0 && <Text>{'  '}</Text>}
+            {tab === 'changes' && changes.length > 0 && (
+              <Button key="revert-all" plain onPress={() => askRevertAll($)}>
+                <Text color="red">[revert all]</Text>
+              </Button>
+            )}
+          </Box>
+          {ask !== null && <Text color="yellow" wrap="wrap">{ask.text}</Text>}
+          {ask !== null && (
+            <Box flexDirection="row">
+              {pact('confirm-yes', '[▶ yes]', () => exclusive($, () => confirmed($)), 'red')}
+              <Text>{'  '}</Text>
+              {pact('confirm-cancel', '[cancel]', () => update($, confirm, () => null))}
+            </Box>
+          )}
+          {stashActs && (
+            <Box flexDirection="row">
+              <Text dimColor>after apply: </Text>
+              {choice('stash-keep', keep, 'keep')}
+              <Text>{' '}</Text>
+              {choice('stash-delete', !keep, 'delete')}
+            </Box>
+          )}
+          {stashActs && (
+            <Box flexDirection="row">
+              {pact('stash-apply', '[▶ apply]', () => exclusive($, () => applyStash($)), 'green')}
+              <Text>{'  '}</Text>
+              {pact('stash-drop', '[drop]', () => askDrop($), 'red')}
+            </Box>
+          )}
+          {listed.length === 0 && <Text dimColor>{tab === 'stash' ? 'no stash' : 'clean'}</Text>}
+          {tab === 'stash'
+            ? shownChanges.map(line => {
+                const hash = hashOf(line)
+                // a press shows it in the band, for apply, drop or the header's stash pop
+                return (
+                  <Button key={`s:${hash}`} plain onPress={() => pickStash($, hash)}>
+                    <Text inverse={sSel === hash} wrap="truncate">
+                      {stashLabel(line)}
+                    </Text>
+                  </Button>
+                )
+              })
+            : shownChanges.map(line => (
+                <Button key={`f:${pathOf(line)}`} plain onPress={() => toggle($, line)}>
+                  <Text
+                    inverse={sel !== null && pathOf(sel) === pathOf(line)}
+                    color={line.startsWith('??') ? 'gray' : line[0] !== ' ' ? 'green' : 'yellow'}
+                    wrap="truncate"
+                  >
+                    {line}
+                  </Text>
+                </Button>
+              ))}
           {Array.from({ length: Math.max(0, changeRows - Math.max(1, shownChanges.length)) }, () => (
             <Text> </Text>
           ))}
@@ -708,62 +908,21 @@ export const register: Register = (on, options) => {
         <Box flexDirection="column" borderStyle="round" borderDimColor paddingX={1}>
           <Box flexDirection="row">
             <Text bold wrap="truncate">
-              {mode === 'diff' && sel !== null
-                ? `Diff: ${pathOf(sel)}`
-                : mode === 'file'
-                  ? `${picked} · ${pickedFile}`
-                  : mode === 'commit'
-                    ? `Commit ${picked}`
-                    : 'Graph'}
-              <Text dimColor>{range(bTop, bottomRows, bottom.length)}  </Text>
+              Graph
+              <Text dimColor>{range(bTop, graphRows, bottom.length)}  </Text>
             </Text>
-            {mode === 'graph' && scope('current', !all)}
-            {mode === 'graph' && <Text dimColor>{' · '}</Text>}
-            {mode === 'graph' && scope('all', all)}
-            {mode !== 'graph' && (
-              <Button key="diff-back" plain dimColor onPress={() => back($)}>
-                {mode === 'file' ? '← commit' : '← graph'}
-              </Button>
-            )}
+            {scope('current', !all)}
+            <Text dimColor>{' · '}</Text>
+            {scope('all', all)}
           </Box>
-          {bottom.slice(bTop, bTop + bottomRows).map(line => {
-            if (line === RULE) return <Text dimColor>{'─'.repeat(Math.max(1, e.props.bodyColumns - 4))}</Text>
-            if (line.startsWith(STAT)) {
-              const cut = line.indexOf(FILE_END)
-              const file = line.slice(STAT.length, cut)
-              const body = line.slice(cut + FILE_END.length)
-              // " path | 12 ++++---": the bars in color, the rest plain
-              const m = /^(.*\|\s*\S+ ?)(\+*)(-*)$/.exec(body)
-              const stat = m ? (
-                <Text wrap="truncate">
-                  {m[1]}
-                  <Text color="green">{m[2]}</Text>
-                  <Text color="red">{m[3]}</Text>
-                </Text>
-              ) : (
-                <Text wrap="truncate">{body}</Text>
-              )
-              if (file === '') return stat
-              // a file's line takes a click: its change, as a commit line does in the graph
-              return e.surface === 'terminal' && Client ? (
-                <Box key={`frow:${file}`} position="relative" flexDirection="row">
-                  {stat}
-                  <Box position="absolute" top={0} left={0} right={0} bottom={0}>
-                    <Client key={`fhit:${file}`} module="./branch-hit.tsx" props={{ id: file } satisfies HitProps} width="100%" height="100%" />
-                  </Box>
-                </Box>
-              ) : (
-                <Button key={`file:${file}`} plain onPress={() => showCommitFile($, Number(file))}>
-                  {stat}
-                </Button>
-              )
-            }
+          {bottom.slice(bTop, bTop + graphRows).map(line => {
+            const hash = commitOf(line)
+            // the picked commit stays marked while the band shows it
             const text = (
-              <Text color={mode === 'graph' ? undefined : lineColor(line)} wrap="truncate">
+              <Text inverse={hash !== null && hash === picked} wrap="truncate">
                 {line}
               </Text>
             )
-            const hash = mode === 'graph' ? commitOf(line) : null
             if (hash === null) return text
             // a commit line takes a click: a hit Client on the terminal (a long
             // Button label would wrap), a Button elsewhere
@@ -780,6 +939,99 @@ export const register: Register = (on, options) => {
               </Button>
             )
           })}
+        </Box>
+      </Box>
+    )
+  })
+
+  // The band above the prompt: the picked file's diff, commit (or a file of it)
+  // or stash, as wide as the transcript, long lines wrapped; the engine scrolls
+  // it when taller than its room. A question waiting for its yes shows on top.
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    if (e.props.hasSurvey) return next(e)
+    const sel = await read($, selected)
+    const hash = await read($, commit)
+    const file = await read($, commitFile)
+    const stash = await read($, stashSel)
+    const stashLine = stash === null ? undefined : (await read($, stashes)).find(l => l.startsWith(`${stash} `))
+    const kind = stash !== null ? 'stash' : sel !== null ? 'diff' : hash !== null ? (file !== null ? 'file' : 'commit') : null
+    if (kind === null) return next(e)
+    const { Box, Text, Button } = $.ui.resolve(e)
+    const title =
+      kind === 'stash'
+        ? `Stash ${stashLine?.slice(stashLine.indexOf(' ') + 1) ?? ''}`
+        : kind === 'diff' && sel !== null
+          ? `Diff: ${pathOf(sel)}`
+          : kind === 'file'
+            ? `${hash} · ${file}`
+            : `Commit ${hash}`
+    const text =
+      kind === 'stash'
+        ? await read($, stashShow)
+        : kind === 'diff'
+          ? await read($, diff)
+          : kind === 'file'
+            ? await read($, commitFileText)
+            : await read($, commitText)
+    const all = text === '' ? [] : text.split('\n')
+    const lines = all.slice(0, DETAIL_MAX)
+    // Words in brackets: a wider mark to hit than a glyph
+    const act = (key: string, label: string, onPress: () => unknown, color?: string) => [
+      <Text>{'  '}</Text>,
+      <Button key={key} plain onPress={onPress}>
+        <Text color={color}>{label}</Text>
+      </Button>,
+    ]
+    return (
+      <Box flexDirection="column">
+        {/* the title row sits above the frame, on the band's first row: the engine draws its [-] right of it */}
+        <Box flexDirection="row" paddingLeft={1}>
+          <Box flexDirection="row" flexGrow={1}>
+            <Text bold wrap="truncate">
+              {title}
+            </Text>
+            {kind === 'file' && act('detail-back', '[← commit]', () => update($, commitFile, () => null))}
+            {kind === 'diff' && sel !== null && act('detail-revert', '[revert]', () => askRevert($, sel), 'red')}
+          </Box>
+          {/* at the far right, beside the engine's own [-] (which only folds the band, and it stays folded) */}
+          <Button key="detail-close" plain onPress={() => closeDetail($)}>
+            <Text color="cyan">[✕]</Text>
+          </Button>
+        </Box>
+        <Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1}>
+        {lines.map(line => {
+          if (line === RULE) return <Text dimColor>{'─'.repeat(Math.max(1, e.props.bodyColumns - 4))}</Text>
+          if (line.startsWith(STAT)) {
+            const cut = line.indexOf(FILE_END)
+            const at = line.slice(STAT.length, cut)
+            const body = line.slice(cut + FILE_END.length)
+            // " path | 12 ++++---": the bars in color, the rest plain
+            const m = /^(.*\|\s*\S+ ?)(\+*)(-*)$/.exec(body)
+            const stat = m ? (
+              <Text wrap="wrap">
+                {m[1]}
+                <Text color="green">{m[2]}</Text>
+                <Text color="red">{m[3]}</Text>
+              </Text>
+            ) : (
+              <Text wrap="wrap">{body}</Text>
+            )
+            // a file's line takes a press: its change in this commit
+            return at === '' ? (
+              stat
+            ) : (
+              <Button key={`file:${at}`} plain onPress={() => showCommitFile($, Number(at))}>
+                {stat}
+              </Button>
+            )
+          }
+          return (
+            <Text color={lineColor(line)} wrap="wrap">
+              {line}
+            </Text>
+          )
+        })}
+        {all.length > lines.length && <Text dimColor>… {all.length - lines.length} more lines</Text>}
         </Box>
       </Box>
     )
@@ -802,23 +1054,14 @@ export const register: Register = (on, options) => {
       }
       return {}
     }
-    const changes = v.status.split('\n').length - 1
+    const changes = (await read($, changesTab)) === 'stash' ? (await read($, stashes)).length : v.status.split('\n').length - 1
     const { changeRows, bottomRows, changesStart, bottomStart } = layout(e.bodyRows)
     // over the tree: the tree's own scrolling (its rows, its preview, its split)
     if (e.pointer !== undefined && e.pointer.row >= HEAD_ROWS && e.pointer.row < changesStart) return scrollTree($, e, next)
     if (e.pointer !== undefined && e.pointer.row < bottomStart) {
       await update($, changesTop, top => clamp(top + e.by, changes, changeRows))
     } else {
-      const sel = await read($, selected)
-      const shown =
-        sel !== null
-          ? await read($, diff)
-          : (await read($, commit)) === null
-            ? v.graph
-            : (await read($, commitFile)) !== null
-              ? await read($, commitFileText)
-              : await read($, commitText)
-      const total = shown.split('\n').length
+      const total = v.graph.split('\n').length
       await update($, bottomTop, top => clamp(top + e.by, total, bottomRows))
     }
 

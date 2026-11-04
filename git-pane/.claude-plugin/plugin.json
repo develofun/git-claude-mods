@@ -1,6 +1,6 @@
 {
   "name": "git-pane",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Pane with the worktree's file tree, git changes and commit graph; the file tree is filetree 0.6.0 (MIT, Kurt Buhler)",
   "license": "MIT",
   "keywords": [

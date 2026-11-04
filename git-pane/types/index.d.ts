@@ -96,6 +96,12 @@ declare module 'claude-code' {
       commitFiles: string[]
       commitFile: string | null
       commitFileText: string
+      changesTab: 'changes' | 'stash'
+      stashes: string[]
+      stashSel: string | null
+      stashShow: string
+      stashKeep: boolean
+      confirm: { kind: 'revert' | 'revert-all' | 'drop'; target: string; text: string } | null
       // the file tree (from filetree 0.6.0, MIT)
       tree: FileTree
       theme: Theme
